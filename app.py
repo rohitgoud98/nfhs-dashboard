@@ -1,112 +1,143 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
 
-# -----------------------------
-# Page configuration
-# -----------------------------
+# ----------------------------------
+# Page Configuration
+# ----------------------------------
 st.set_page_config(
-    page_title="India Change Dashboard",
+    page_title="India NFHS Change Dashboard",
     layout="wide"
 )
 
-st.title("📊 India Change Dashboard")
+st.title("📊 India NFHS-4 vs NFHS-5 Change Dashboard")
 
-# -----------------------------
-# Load data
-# -----------------------------
+# ----------------------------------
+# Load Data
+# ----------------------------------
 @st.cache_data
 def load_data():
-    return pd.read_csv("/mnt/data/India_Change.csv")
+    return pd.read_csv("India_Change.csv")
 
 df = load_data()
 
-# -----------------------------
-# Sidebar
-# -----------------------------
+# ----------------------------------
+# Sidebar Filters
+# ----------------------------------
 st.sidebar.header("Filters")
 
-numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
-categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
+state = st.sidebar.selectbox(
+    "Select State",
+    sorted(df["State"].unique())
+)
 
-selected_category = None
-if categorical_cols:
-    selected_category = st.sidebar.selectbox(
-        "Select Category",
-        options=["All"] + categorical_cols
-    )
+districts = df[df["State"] == state]["District Name"].unique()
+district = st.sidebar.selectbox(
+    "Select District",
+    sorted(districts)
+)
 
-filtered_df = df.copy()
+categories = df[
+    (df["State"] == state) &
+    (df["District Name"] == district)
+]["Category"].unique()
 
-if selected_category and selected_category != "All":
-    category_value = st.sidebar.selectbox(
-        f"Select {selected_category}",
-        options=filtered_df[selected_category].unique()
-    )
-    filtered_df = filtered_df[filtered_df[selected_category] == category_value]
+category = st.sidebar.selectbox(
+    "Select Category",
+    categories
+)
 
-# -----------------------------
-# Data preview
-# -----------------------------
-with st.expander("🔍 View Data"):
-    st.dataframe(filtered_df)
+indicators = df[
+    (df["State"] == state) &
+    (df["District Name"] == district) &
+    (df["Category"] == category)
+]["Indicator"].unique()
 
-# -----------------------------
-# KPI Section
-# -----------------------------
-st.subheader("Key Metrics")
+indicator = st.sidebar.selectbox(
+    "Select Indicator",
+    indicators
+)
 
-kpi_cols = st.columns(len(numeric_cols[:4]) if numeric_cols else 1)
+# ----------------------------------
+# Filtered Row
+# ----------------------------------
+filtered_df = df[
+    (df["State"] == state) &
+    (df["District Name"] == district) &
+    (df["Category"] == category) &
+    (df["Indicator"] == indicator)
+]
 
-for i, col in enumerate(numeric_cols[:4]):
-    kpi_cols[i].metric(
-        label=col,
-        value=round(filtered_df[col].mean(), 2)
-    )
+row = filtered_df.iloc[0]
 
-# -----------------------------
-# Charts
-# -----------------------------
-st.subheader("Visual Analysis")
+nfhs4 = row["NFHS 4"]
+nfhs5 = row["NFHS 5"]
+change = row["Change"]
 
-if numeric_cols:
-    col1, col2 = st.columns(2)
+# ----------------------------------
+# KPI Metrics
+# ----------------------------------
+st.subheader("Key Indicators")
 
-    with col1:
-        selected_y = st.selectbox("Select Numeric Column", numeric_cols)
-        fig, ax = plt.subplots()
-        ax.plot(filtered_df[selected_y])
-        ax.set_title(f"{selected_y} Trend")
-        ax.set_xlabel("Index")
-        ax.set_ylabel(selected_y)
-        st.pyplot(fig)
+c1, c2, c3 = st.columns(3)
+c1.metric("NFHS-4 (%)", f"{nfhs4}")
+c2.metric("NFHS-5 (%)", f"{nfhs5}")
+c3.metric("Change (%)", f"{change}", delta=f"{change}%")
 
-    with col2:
-        fig, ax = plt.subplots()
-        ax.hist(filtered_df[selected_y], bins=20)
-        ax.set_title(f"{selected_y} Distribution")
-        st.pyplot(fig)
+# ----------------------------------
+# NFHS Comparison Chart
+# ----------------------------------
+st.subheader("NFHS Comparison")
 
-# -----------------------------
-# Bar chart (if categorical + numeric)
-# -----------------------------
-if categorical_cols and numeric_cols:
-    st.subheader("Category Comparison")
+compare_df = pd.DataFrame({
+    "Survey": ["NFHS-4", "NFHS-5"],
+    "Value": [nfhs4, nfhs5]
+})
 
-    cat_col = st.selectbox("Category Column", categorical_cols)
-    num_col = st.selectbox("Numeric Column", numeric_cols)
+fig1 = px.bar(
+    compare_df,
+    x="Survey",
+    y="Value",
+    text="Value",
+    title=indicator
+)
 
-    grouped = filtered_df.groupby(cat_col)[num_col].mean()
+fig1.update_traces(textposition="outside")
+fig1.update_layout(yaxis_title="Percentage")
 
-    fig, ax = plt.subplots()
-    grouped.plot(kind="bar", ax=ax)
-    ax.set_title(f"Average {num_col} by {cat_col}")
-    ax.set_ylabel(num_col)
+st.plotly_chart(fig1, use_container_width=True)
 
-    st.pyplot(fig)
+# ----------------------------------
+# Category Overview (District Level)
+# ----------------------------------
+st.subheader("Indicator-wise Change (District Level)")
 
-# -----------------------------
+overview = df[
+    (df["State"] == state) &
+    (df["District Name"] == district) &
+    (df["Category"] == category)
+]
+
+fig2 = px.bar(
+    overview,
+    x="Change",
+    y="Indicator",
+    orientation="h",
+    color="Change",
+    title=f"Change in {category}",
+    labels={"Change": "Change (%)"}
+)
+
+st.plotly_chart(fig2, use_container_width=True)
+
+# ----------------------------------
+# Data Table
+# ----------------------------------
+with st.expander("📄 View Data"):
+    st.dataframe(overview)
+
+# ----------------------------------
 # Footer
-# -----------------------------
+# ----------------------------------
 st.markdown("---")
-st.caption("Built with Streamlit")
+st.caption("Source: NFHS-4 & NFHS-5 | Built with Streamlit & Plotly")
